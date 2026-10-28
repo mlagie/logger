@@ -1,43 +1,114 @@
 name: Publish Package
 
 on:
-  workflow_dispatch:
-  release:
-    types: [published]
   push:
     branches:
       - "**"
   pull_request:
     branches:
       - main
+  workflow_dispatch:
+
 jobs:
+  check_security:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: 22
+      - run: npm ci
+      - run: npm audit
+      - run: npm run security
+
+  integrity:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: 22
+      - run: npm ci
+      - run: npm run test
+
+  check_version:
+    if: >-
+      github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: 22
+      - run: npm run check-version
+
+  release:
+    needs: [check_security, integrity, check_version]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: 22
+      - name: Lire la version
+        id: version
+        run: echo "version=$(jq -r '.version' package.json)" >> "$GITHUB_OUTPUT"
+      - name: Créer le tag et la release GitHub
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          gh release create "v$VERSION" \
+            --target "$GITHUB_SHA" \
+            --title "v$VERSION" \
+            --notes-file "releases/$VERSION.md"
+
   publish:
-    if: github.event_name == 'release' || github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
+    needs: [release, check_version]
+    runs-on: ubuntu-24.04
     environment: sqlc
     permissions:
       contents: read
-      id-token: write # Requis pour la provenance (--provenance)
-
+      id-token: write
     steps:
-      # 1. Récupérer le code source
-      - name: Checkout du code
-        uses: actions/checkout@v6
-
-      # 2. Configurer Node.js pour registry.npmjs.org
-      - name: Configurer Node.js
-        uses: actions/setup-node@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
         with:
           node-version: "22"
-          registry-url: "https://registry.npmjs.org/" # <-- Cible npmjs
+          registry-url: "https://registry.npmjs.org/"
           scope: "@mlagie"
-
-      # 3. Installer les dépendances
-      - name: Installer les dépendances
-        run: npm ci
-
-      # 4. Publier sur le vrai registre npm
-      - name: Publier sur npmjs.com
-        run: npm publish --provenance --access public
+      - run: npm ci
+      - run: npm publish --provenance --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  rollback:
+    needs: [release, publish]
+    if: ${{ always() && needs.release.result == 'success' && needs.publish.result == 'failure' }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: 22
+      - name: Supprimer la release et le tag si la version n'est pas sur npm
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.release.outputs.version }}
+          PACKAGE: "@mlagie/sql-connector"
+        run: |
+          PUBLISHED=$(npm view "$PACKAGE@$VERSION" version 2>/dev/null || true)
+          if [ -n "$PUBLISHED" ]; then
+            echo "La version $VERSION est déjà sur npm : on ne supprime rien."
+            exit 0
+          fi
+          gh release delete "v$VERSION" \
+            --repo "${{ github.repository }}" \
+            --cleanup-tag \
+            --yes

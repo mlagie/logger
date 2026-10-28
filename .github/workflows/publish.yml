@@ -31,34 +31,12 @@ jobs:
           node-version: 22
       - run: npm run check-version
 
-  release:
+  publish:
+    if: github.event_name == 'workflow_dispatch'
     needs: [integrity, check_version]
     runs-on: ubuntu-24.04
-    outputs:
-      version: ${{ steps.version.outputs.version }}
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
-        with:
-          node-version: 22
-      - name: Lire la version
-        id: version
-        run: echo "version=$(jq -r '.version' package.json)" >> "$GITHUB_OUTPUT"
-      - name: Créer le tag et la release GitHub
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          VERSION="${{ steps.version.outputs.version }}"
-          gh release create "v$VERSION" \
-            --target "$GITHUB_SHA" \
-            --title "v$VERSION" \
-            --notes-file "releases/$VERSION.md"
-
-  publish:
-    needs: [release, check_version]
-    runs-on: ubuntu-24.04
+    # npm trusted publisher: lagie-marin/logger, publish.yml, environment sqlc,
+    # with direct npm publish allowed for @mlagie/logger.
     environment: sqlc
     permissions:
       contents: read
@@ -68,35 +46,36 @@ jobs:
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
         with:
           node-version: "22"
-          registry-url: "https://registry.npmjs.org/"
-          scope: "@mlagie"
+      - name: Use an npm CLI that supports trusted publishing
+        run: npm install --global 'npm@^11.5.1'
+      - run: npm --version
       - run: npm ci
-      - run: npm publish --provenance --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - run: npm publish --access public
 
-  rollback:
-    needs: [release, publish]
-    if: ${{ always() && needs.release.result == 'success' && needs.publish.result == 'failure' }}
+  release:
+    if: github.event_name == 'workflow_dispatch'
+    needs: [publish]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
         with:
           node-version: 22
-      - name: Supprimer la release et le tag si la version n'est pas sur npm
+      - name: Read package version
+        id: version
+        run: echo "version=$(jq -r '.version' package.json)" >> "$GITHUB_OUTPUT"
+      - name: Create GitHub tag and release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          VERSION: ${{ needs.release.outputs.version }}
-          PACKAGE: "@mlagie/sql-connector"
         run: |
-          PUBLISHED=$(npm view "$PACKAGE@$VERSION" version 2>/dev/null || true)
-          if [ -n "$PUBLISHED" ]; then
-            echo "La version $VERSION est déjà sur npm : on ne supprime rien."
+          VERSION="${{ steps.version.outputs.version }}"
+          if gh release view "v$VERSION" >/dev/null 2>&1; then
+            echo "::warning::GitHub release v$VERSION already exists; verify its tag points to the published commit."
             exit 0
           fi
-          gh release delete "v$VERSION" \
-            --repo "${{ github.repository }}" \
-            --cleanup-tag \
-            --yes
+          gh release create "v$VERSION" \
+            --target "$GITHUB_SHA" \
+            --title "v$VERSION" \
+            --notes-file "releases/$VERSION.md"

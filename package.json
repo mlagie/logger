@@ -10,7 +10,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/mlagie/logger.git"
+    "url": "git+https://github.com/lagie-marin/logger.git"
   },
   "keywords": [
     "logger",
@@ -29,9 +29,9 @@
   "license": "MIT",
   "type": "commonjs",
   "bugs": {
-    "url": "https://github.com/mlagie/logger/issues"
+    "url": "https://github.com/lagie-marin/logger/issues"
   },
-  "homepage": "https://github.com/mlagie/logger#readme",
+  "homepage": "https://github.com/lagie-marin/logger#readme",
   "private": false,
   "dependencies": {
     "chalk": "^5.6.0",

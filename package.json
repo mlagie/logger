@@ -1,16 +1,29 @@
 {
   "name": "@mlagie/logger",
-  "version": "1.0.5",
-  "description": "Logger permet d'afficher des messages colorés en console et d'écrire les logs dans des fichiers, selon l'environnement.",
+  "version": "1.1.0",
+  "description": "Display color-coded log messages in the console and optionally write them to files.",
   "main": "index.js",
+  "types": "index.d.ts",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "node test/logger.test.js"
   },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/mlagie/logger.git"
   },
-  "keywords": ["debug", "log", "logger", "timestamp"],
+  "keywords": [
+    "logger",
+    "logging",
+    "http-logging",
+    "request-logging",
+    "structured-logging",
+    "json-logging",
+    "console-logging",
+    "file-logging",
+    "log-redaction",
+    "nodejs",
+    "typescript"
+  ],
   "author": "mlagie",
   "license": "MIT",
   "type": "commonjs",
